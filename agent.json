@@ -1,0 +1,14 @@
+{
+  "label": "Scatter Utility",
+  "description": "Receives entity IDs via input and scatters them to the next workflow step",
+  "endpoint": "https://scatter.nick-chimicles-professional.workers.dev",
+  "actions_required": ["entity:view"],
+  "accepts": {
+    "types": ["*"],
+    "cardinality": "one"
+  },
+  "produces": {
+    "types": ["*"],
+    "cardinality": "many"
+  }
+}
