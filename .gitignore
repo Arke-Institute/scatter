@@ -4,3 +4,4 @@ dist/
 .dev.vars
 .klados-state.json
 .klados-state.prod.json
+.env
