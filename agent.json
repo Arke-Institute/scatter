@@ -1,14 +1,270 @@
 {
+  "schema_version": "1.0",
+
   "label": "Scatter Utility",
-  "description": "Receives entity IDs via input and scatters them to the next workflow step",
+  "description": "Receives entity IDs via workflow input and scatters them to the next workflow step, enabling fan-out patterns in rhiza workflows.",
+
+  "detailed_description": "## Overview\n\nThe Scatter Utility is a simple but essential klados for workflow orchestration. It takes an array of entity IDs passed via workflow input and returns them as outputs, which rhiza's scatter handoff system then dispatches in parallel to the next workflow step.\n\n## How It Works\n\n1. Receives a `KladosRequest` with `input.entity_ids` array\n2. Validates the array is present and non-empty\n3. Normalizes each ID (supports both string IDs and object format with routing info)\n4. Returns all IDs as outputs for scatter handoff\n5. Rhiza dispatches each ID to the next workflow step in parallel\n\n## When to Use\n\n- Starting a workflow that needs to process multiple entities in parallel\n- Implementing fan-out patterns where one step produces IDs for parallel processing\n- Workflows that accept entity IDs via invocation parameters rather than target_id\n\n## Key Features\n\n- Supports simple string IDs: `[\"id1\", \"id2\", \"id3\"]`\n- Supports object format with routing: `[{ entity_id: \"id1\", entity_class: \"priority\" }]`\n- For >50 items, rhiza automatically delegates to scatter-utility service for batched dispatch\n\n## Limitations\n\n- Does not validate that entity IDs actually exist (validation happens downstream)\n- Cannot filter or transform entities (use a dedicated klados for that)\n- Requires `entity_ids` to be passed in workflow input, not via target_id",
+
   "endpoint": "https://scatter.nick-chimicles-professional.workers.dev",
   "actions_required": ["entity:view"],
-  "accepts": {
-    "types": ["*"],
+
+  "input": {
+    "entity": {
+      "types": ["*"],
+      "types_description": "The target entity is not used by this klados. Any entity type is accepted but its content is ignored. The scatter utility operates purely on workflow input parameters.",
+
+      "properties": {
+        "required": {},
+        "optional": {}
+      },
+
+      "file": {
+        "required": false,
+        "description": "File attachments are not used by this klados."
+      },
+
+      "relationships": {
+        "required": {},
+        "optional": {}
+      }
+    },
+
+    "klados_input": {
+      "description": "Entity IDs to scatter are passed via the rhiza workflow input field. This is the primary input mechanism for this klados.",
+      "properties": {
+        "required": {
+          "entity_ids": {
+            "type": "array",
+            "description": "Array of entity IDs to scatter to the next workflow step. Can be simple string IDs or objects with routing information.",
+            "minItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Simple entity ID string"
+                },
+                {
+                  "type": "object",
+                  "description": "Entity ID with optional routing properties",
+                  "properties": {
+                    "entity_id": {
+                      "type": "string",
+                      "description": "The entity ID (required)"
+                    },
+                    "entity_class": {
+                      "type": "string",
+                      "description": "Optional routing class for conditional workflow paths"
+                    }
+                  },
+                  "required": ["entity_id"]
+                }
+              ]
+            },
+            "examples": [
+              ["ENTITY_001", "ENTITY_002", "ENTITY_003"],
+              [
+                { "entity_id": "ENTITY_001", "entity_class": "high_priority" },
+                { "entity_id": "ENTITY_002", "entity_class": "normal" }
+              ]
+            ]
+          }
+        },
+        "optional": {}
+      }
+    },
+
     "cardinality": "one"
   },
-  "produces": {
-    "types": ["*"],
+
+  "output": {
+    "entities": {
+      "creates": null,
+      "modifies": null
+    },
+
+    "handoff": {
+      "outputs": "All entity IDs from input.entity_ids, normalized to Output format",
+      "description": "Returns all input entity IDs as outputs. When used with a scatter handoff (e.g., { scatter: \"next_step\" }), rhiza dispatches each ID to the next step in parallel. The Output format preserves any routing properties passed in the input."
+    },
+
     "cardinality": "many"
+  },
+
+  "behavior": {
+    "processing": {
+      "tier": 1,
+      "tier_description": "Simple Tier 1 worker using KladosJob with waitUntil(). No Durable Objects needed since processing is instantaneous.",
+      "typical_duration": "< 100ms",
+      "idempotent": true,
+      "idempotent_description": "Running with the same input always produces the same outputs. No side effects beyond log creation."
+    },
+
+    "constraints": {
+      "size_limits": {
+        "entity_ids_array": "Practical limit around 10,000 IDs per invocation (constrained by request/response size)",
+        "notes": "For very large scatters (>50 items), rhiza automatically uses batched dispatch via scatter-utility service"
+      },
+      "rate_limits": "No external API calls, limited only by Cloudflare worker limits",
+      "concurrency": "Stateless, unlimited parallel instances supported"
+    },
+
+    "error_handling": {
+      "missing_entity_ids": {
+        "behavior": "Throws error immediately",
+        "log_status": "error",
+        "message": "input.entity_ids is required"
+      },
+      "invalid_entity_ids_type": {
+        "behavior": "Throws error immediately",
+        "log_status": "error",
+        "message": "input.entity_ids must be an array"
+      },
+      "empty_entity_ids": {
+        "behavior": "Throws error immediately",
+        "log_status": "error",
+        "message": "input.entity_ids must not be empty"
+      }
+    },
+
+    "side_effects": [
+      "Creates klados_log entity in job_collection (standard for all kladoi)",
+      "No entities created or modified in target_collection"
+    ]
+  },
+
+  "examples": [
+    {
+      "name": "Basic scatter with string IDs",
+      "description": "Scatter three entities to parallel processing",
+
+      "input": {
+        "entity": {
+          "id": "WORKFLOW_ROOT",
+          "type": "workflow",
+          "properties": {
+            "label": "KG Extraction Workflow"
+          }
+        },
+        "klados_input": {
+          "entity_ids": ["CHUNK_001", "CHUNK_002", "CHUNK_003"]
+        }
+      },
+
+      "output": {
+        "entities_created": [],
+        "handoff_outputs": ["CHUNK_001", "CHUNK_002", "CHUNK_003"],
+        "log_messages": [
+          "Scattering 3 entities",
+          "Prepared 3 outputs for scatter"
+        ]
+      },
+
+      "workflow_context": {
+        "rhiza_flow": {
+          "scatter": {
+            "klados": { "id": "klados_scatter_utility" },
+            "input": { "entity_ids": ["CHUNK_001", "CHUNK_002", "CHUNK_003"] },
+            "then": { "scatter": "extract" }
+          },
+          "extract": {
+            "klados": { "id": "klados_kg_extractor" },
+            "then": { "done": true }
+          }
+        },
+        "notes": "Each of CHUNK_001, CHUNK_002, CHUNK_003 will be dispatched to extract step in parallel"
+      }
+    },
+
+    {
+      "name": "Scatter with routing metadata",
+      "description": "Scatter entities with classification for conditional routing",
+
+      "input": {
+        "entity": {
+          "type": "workflow",
+          "properties": {}
+        },
+        "klados_input": {
+          "entity_ids": [
+            { "entity_id": "DOC_A", "entity_class": "pdf" },
+            { "entity_id": "DOC_B", "entity_class": "image" },
+            { "entity_id": "DOC_C", "entity_class": "pdf" }
+          ]
+        }
+      },
+
+      "output": {
+        "handoff_outputs": [
+          { "entity_id": "DOC_A", "entity_class": "pdf" },
+          { "entity_id": "DOC_B", "entity_class": "image" },
+          { "entity_id": "DOC_C", "entity_class": "pdf" }
+        ]
+      },
+
+      "notes": "Routing metadata (entity_class) is preserved in outputs and can be used by rhiza for conditional routing to different kladoi"
+    },
+
+    {
+      "name": "Error case - missing entity_ids",
+      "description": "What happens when entity_ids is not provided",
+
+      "input": {
+        "entity": {
+          "type": "workflow",
+          "properties": {}
+        },
+        "klados_input": {}
+      },
+
+      "output": {
+        "error": true,
+        "log_status": "error",
+        "error_message": "input.entity_ids is required"
+      }
+    }
+  ],
+
+  "metadata": {
+    "version": "1.0.0",
+    "author": "Arke Institute",
+
+    "tags": ["workflow", "scatter", "fan-out", "orchestration", "utility", "tier-1"],
+
+    "related_kladoi": {
+      "often_used_with": [
+        {
+          "label": "KG Extractor",
+          "description": "Scatter entity IDs to parallel extraction jobs",
+          "when": "Extracting knowledge graphs from multiple text chunks"
+        },
+        {
+          "label": "Text Chunker",
+          "description": "Chunker produces IDs, scatter distributes them",
+          "when": "Processing large documents that need to be split first"
+        },
+        {
+          "label": "Gather Utility",
+          "description": "Complement to scatter - collects results after parallel processing",
+          "when": "Results from scattered jobs need to be aggregated"
+        }
+      ],
+      "workflows": [
+        {
+          "label": "scatter-kg",
+          "description": "Knowledge graph extraction pipeline starting with scatter"
+        },
+        {
+          "label": "scatter-kg-recursive",
+          "description": "Recursive KG extraction with scatter at entry point"
+        }
+      ]
+    },
+
+    "costs": {
+      "api_calls": "0 external API calls",
+      "compute": "Minimal - simple array transformation",
+      "estimated_cost": "Negligible (Cloudflare worker compute only)"
+    }
   }
 }
