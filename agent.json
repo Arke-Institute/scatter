@@ -2,12 +2,12 @@
   "schema_version": "1.0",
 
   "label": "Scatter Utility",
-  "description": "Receives entity IDs via workflow input and scatters them to the next workflow step, enabling fan-out patterns in rhiza workflows.",
+  "description": "Scatters entity IDs to the next workflow step OR invokes a target klados directly when target_klados is specified (generic scatter mode).",
 
-  "detailed_description": "## Overview\n\nThe Scatter Utility is a simple but essential klados for workflow orchestration. It takes an array of entity IDs passed via workflow input and returns them as outputs, which rhiza's scatter handoff system then dispatches in parallel to the next workflow step.\n\n## How It Works\n\n1. Receives a `KladosRequest` with `input.entity_ids` array\n2. Validates the array is present and non-empty\n3. Normalizes each ID (supports both string IDs and object format with routing info)\n4. Returns all IDs as outputs for scatter handoff\n5. Rhiza dispatches each ID to the next workflow step in parallel\n\n## When to Use\n\n- Starting a workflow that needs to process multiple entities in parallel\n- Implementing fan-out patterns where one step produces IDs for parallel processing\n- Workflows that accept entity IDs via invocation parameters rather than target_id\n\n## Key Features\n\n- Supports simple string IDs: `[\"id1\", \"id2\", \"id3\"]`\n- Supports object format with routing: `[{ entity_id: \"id1\", entity_class: \"priority\" }]`\n- For >50 items, rhiza automatically delegates to scatter-utility service for batched dispatch\n\n## Limitations\n\n- Does not validate that entity IDs actually exist (validation happens downstream)\n- Cannot filter or transform entities (use a dedicated klados for that)\n- Requires `entity_ids` to be passed in workflow input, not via target_id",
+  "detailed_description": "## Overview\n\nThe Scatter Utility is a versatile klados for workflow orchestration with two modes of operation:\n\n1. **Rhiza Handoff Mode** (default): Returns entity IDs as outputs for rhiza's scatter handoff to dispatch\n2. **Generic Scatter Mode**: When `target_klados` or `target_rhiza` is specified, invokes the target directly for each entity ID\n\n## Rhiza Handoff Mode\n\nIn this mode, the klados:\n1. Receives a `KladosRequest` with `input.entity_ids` array\n2. Validates the array is present and non-empty\n3. Normalizes each ID (supports both string IDs and object format with routing info)\n4. Returns all IDs as outputs for scatter handoff\n5. Rhiza dispatches each ID to the next workflow step in parallel\n\n## Generic Scatter Mode\n\nWhen `input.target_klados` or `input.target_rhiza` is provided, the scatter utility invokes the target directly for each entity ID, bypassing rhiza workflow handoffs. This enables dynamic scatter-to-X operations without creating a full rhiza.\n\n### Example:\n```json\n{\n  \"input\": {\n    \"target_klados\": \"DESCRIBE_KLADOS_ID\",\n    \"entity_ids\": [\"e1\", \"e2\", \"e3\"],\n    \"passthrough_input\": { \"mode\": \"detailed\" }\n  }\n}\n```\n\n### Generic Mode Features:\n- ≤50 items: Direct invocation with concurrency control (10 parallel)\n- >50 items: Delegates to scatter-utility service for batched dispatch\n- Fire-and-forget: No result collection (use rhiza for gather)\n- `passthrough_input`: Optional input passed to each target invocation\n\n## When to Use\n\n- **Rhiza mode**: Starting a workflow that needs to process multiple entities in parallel\n- **Generic mode**: AI agents that need to scatter entities to a target without creating a workflow\n\n## Key Features\n\n- Supports simple string IDs: `[\"id1\", \"id2\", \"id3\"]`\n- Supports object format with routing: `[{ entity_id: \"id1\", entity_class: \"priority\" }]`\n- Automatic batching for large scatters (>50 items)\n\n## Limitations\n\n- Does not validate that entity IDs actually exist (validation happens downstream)\n- Generic mode is fire-and-forget only (no gather/result collection)\n- Cannot filter or transform entities (use a dedicated klados for that)",
 
   "endpoint": "https://scatter.nick-chimicles-professional.workers.dev",
-  "actions_required": ["entity:view"],
+  "actions_required": ["entity:view", "entity:create"],
 
   "input": {
     "entity": {
@@ -31,12 +31,12 @@
     },
 
     "klados_input": {
-      "description": "Entity IDs to scatter are passed via the rhiza workflow input field. This is the primary input mechanism for this klados.",
+      "description": "Entity IDs to scatter, with optional target for generic scatter mode.",
       "properties": {
         "required": {
           "entity_ids": {
             "type": "array",
-            "description": "Array of entity IDs to scatter to the next workflow step. Can be simple string IDs or objects with routing information.",
+            "description": "Array of entity IDs to scatter. Can be simple string IDs or objects with routing information.",
             "minItems": 1,
             "items": {
               "oneOf": [
@@ -70,7 +70,20 @@
             ]
           }
         },
-        "optional": {}
+        "optional": {
+          "target_klados": {
+            "type": "string",
+            "description": "Klados ID to invoke for each entity (generic scatter mode). When specified, invokes target directly instead of returning outputs for rhiza handoff."
+          },
+          "target_rhiza": {
+            "type": "string",
+            "description": "Rhiza ID to invoke for each entity (generic scatter mode). Alternative to target_klados."
+          },
+          "passthrough_input": {
+            "type": "object",
+            "description": "Input data to pass to each target invocation (only used in generic scatter mode)."
+          }
+        }
       }
     },
 
@@ -129,7 +142,8 @@
 
     "side_effects": [
       "Creates klados_log entity in job_collection (standard for all kladoi)",
-      "No entities created or modified in target_collection"
+      "In generic scatter mode: invokes target klados/rhiza for each entity ID",
+      "No entities created or modified in target_collection (directly)"
     ]
   },
 
@@ -203,6 +217,34 @@
       },
 
       "notes": "Routing metadata (entity_class) is preserved in outputs and can be used by rhiza for conditional routing to different kladoi"
+    },
+
+    {
+      "name": "Generic scatter mode - invoke target directly",
+      "description": "Scatter entities directly to a klados without a rhiza workflow",
+
+      "input": {
+        "entity": {
+          "type": "workflow",
+          "properties": {}
+        },
+        "klados_input": {
+          "target_klados": "DESCRIBE_KLADOS_ID",
+          "entity_ids": ["ENTITY_001", "ENTITY_002", "ENTITY_003"],
+          "passthrough_input": { "mode": "detailed" }
+        }
+      },
+
+      "output": {
+        "entities_created": [],
+        "handoff_outputs": [],
+        "log_messages": [
+          "Generic scatter: 3 entities → klados DESCRIBE_KLADOS_ID",
+          "Invoked 3 targets directly"
+        ]
+      },
+
+      "notes": "In generic mode, the scatter klados invokes the target directly for each entity. Returns empty outputs (no rhiza handoff needed). passthrough_input is passed to each target invocation."
     },
 
     {

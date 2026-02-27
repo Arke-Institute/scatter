@@ -11,7 +11,7 @@
  */
 
 import { Hono } from 'hono';
-import { KladosJob, type KladosRequest } from '@arke-institute/rhiza';
+import { KladosJob, getKladosConfig, type KladosRequest } from '@arke-institute/rhiza';
 import { processScatterJob } from './job';
 import type { Env } from './types';
 
@@ -52,12 +52,11 @@ app.get('/.well-known/arke-verification', (c) => {
 app.post('/process', async (c) => {
   const req = await c.req.json<KladosRequest>();
 
+  // Get network-aware config (uses AGENT_ID_TEST/MAIN and ARKE_AGENT_KEY_TEST/MAIN)
+  const config = getKladosConfig(c.env, req.network);
+
   // Accept the job immediately
-  const job = KladosJob.accept(req, {
-    agentId: c.env.AGENT_ID,
-    agentVersion: c.env.AGENT_VERSION,
-    authToken: c.env.ARKE_AGENT_KEY,
-  });
+  const job = KladosJob.accept(req, config);
 
   // Process in background
   c.executionCtx.waitUntil(

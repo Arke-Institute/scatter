@@ -13,9 +13,12 @@
   // Environment variables (non-secret)
   "vars": {
     "AGENT_ID": "IIKHHD7B3FFR681X4XG64CQGH2",
+    "AGENT_ID_TEST": "IIKHHD7B3FFR681X4XG64CQGH2",
+    "AGENT_ID_MAIN": "01KJ61043AFBTGY9CQSVDF5WW2",
     "AGENT_VERSION": "1.0.0"
   }
 
   // Secrets (set via `wrangler secret put`):
-  // - ARKE_AGENT_KEY: Your agent API key (ak_...)
+  // - ARKE_AGENT_KEY_TEST: Agent API key for test network (ak_...)
+  // - ARKE_AGENT_KEY_MAIN: Agent API key for main network (ak_...)
 }
