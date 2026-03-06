@@ -38,18 +38,24 @@ export interface Env {
 }
 
 /**
- * Entity ID input - can be a simple string or an object with routing info
- */
-export type EntityIdInput = string | {
-  entity_id: string;
-  entity_class?: string;
-  [key: string]: unknown;
-};
-
-/**
- * Expected input for the scatter utility
+ * Optional input for generic scatter mode
+ *
+ * Note: Entity IDs are now received via request.target_entities (standard KladosRequest field)
+ * rather than input.entity_ids. The input is only used for generic scatter mode options.
  */
 export interface ScatterInput {
-  /** Array of entity IDs to scatter */
-  entity_ids: EntityIdInput[];
+  /** Klados ID to invoke directly (generic scatter mode) */
+  target_klados?: string;
+
+  /** Rhiza ID to invoke directly (generic scatter mode) */
+  target_rhiza?: string;
+
+  /** Input to pass through to each target invocation */
+  passthrough_input?: Record<string, unknown>;
+
+  /**
+   * @deprecated Use request.target_entities instead.
+   * Kept for backward compatibility with existing workflows.
+   */
+  entity_ids?: string[];
 }

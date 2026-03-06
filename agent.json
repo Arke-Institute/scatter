@@ -6,72 +6,26 @@
 
   "match": { "never": true },
 
-  "detailed_description": "## Overview\n\nThe Scatter Utility is a versatile klados for workflow orchestration with two modes of operation:\n\n1. **Rhiza Handoff Mode** (default): Returns entity IDs as outputs for rhiza's scatter handoff to dispatch\n2. **Generic Scatter Mode**: When `target_klados` or `target_rhiza` is specified, invokes the target directly for each entity ID\n\n## Rhiza Handoff Mode\n\nIn this mode, the klados:\n1. Receives a `KladosRequest` with `input.entity_ids` array\n2. Validates the array is present and non-empty\n3. Normalizes each ID (supports both string IDs and object format with routing info)\n4. Returns all IDs as outputs for scatter handoff\n5. Rhiza dispatches each ID to the next workflow step in parallel\n\n## Generic Scatter Mode\n\nWhen `input.target_klados` or `input.target_rhiza` is provided, the scatter utility invokes the target directly for each entity ID, bypassing rhiza workflow handoffs. This enables dynamic scatter-to-X operations without creating a full rhiza.\n\n### Example:\n```json\n{\n  \"input\": {\n    \"target_klados\": \"DESCRIBE_KLADOS_ID\",\n    \"entity_ids\": [\"e1\", \"e2\", \"e3\"],\n    \"passthrough_input\": { \"mode\": \"detailed\" }\n  }\n}\n```\n\n### Generic Mode Features:\n- ≤50 items: Direct invocation with concurrency control (10 parallel)\n- >50 items: Delegates to scatter-utility service for batched dispatch\n- Fire-and-forget: No result collection (use rhiza for gather)\n- `passthrough_input`: Optional input passed to each target invocation\n\n## When to Use\n\n- **Rhiza mode**: Starting a workflow that needs to process multiple entities in parallel\n- **Generic mode**: AI agents that need to scatter entities to a target without creating a workflow\n\n## Key Features\n\n- Supports simple string IDs: `[\"id1\", \"id2\", \"id3\"]`\n- Supports object format with routing: `[{ entity_id: \"id1\", entity_class: \"priority\" }]`\n- Automatic batching for large scatters (>50 items)\n\n## Limitations\n\n- Does not validate that entity IDs actually exist (validation happens downstream)\n- Generic mode is fire-and-forget only (no gather/result collection)\n- Cannot filter or transform entities (use a dedicated klados for that)",
+  "detailed_description": "## Overview\n\nThe Scatter Utility is a versatile klados for workflow orchestration. It accepts multiple entities via `target_entities` and fans them out to the next workflow step.\n\n## Two Modes of Operation\n\n### 1. Rhiza Handoff Mode (default)\n\nReceives entity IDs via `target_entities` and returns them as outputs for rhiza's scatter handoff to dispatch in parallel.\n\n**Invocation:**\n```json\nPOST /rhizai/{id}/invoke\n{\n  \"target_collection\": \"...\",\n  \"target_entities\": [\"ENTITY_001\", \"ENTITY_002\", \"ENTITY_003\"],\n  \"confirm\": true\n}\n```\n\n### 2. Generic Scatter Mode\n\nWhen `input.target_klados` or `input.target_rhiza` is specified, invokes the target directly for each entity ID (fire-and-forget).\n\n**Invocation:**\n```json\nPOST /rhizai/{id}/invoke\n{\n  \"target_collection\": \"...\",\n  \"target_entities\": [\"e1\", \"e2\", \"e3\"],\n  \"input\": {\n    \"target_klados\": \"DESCRIBE_KLADOS_ID\",\n    \"passthrough_input\": { \"mode\": \"detailed\" }\n  },\n  \"confirm\": true\n}\n```\n\n**Generic Mode Features:**\n- ≤50 items: Direct invocation with concurrency control (10 parallel)\n- >50 items: Delegates to scatter-utility service for batched dispatch\n- Fire-and-forget: No result collection (use rhiza for gather)\n- `passthrough_input`: Optional input passed to each target invocation\n\n## When to Use\n\n- **Rhiza mode**: Workflow entry point that processes multiple entities in parallel\n- **Generic mode**: AI agents that need to scatter entities to a target without creating a workflow\n\n## Backward Compatibility\n\nThe klados also supports the deprecated `input.entity_ids` format for existing workflows. New workflows should use `target_entities`.\n\n## Limitations\n\n- Does not validate that entity IDs actually exist (validation happens downstream)\n- Generic mode is fire-and-forget only (no gather/result collection)\n- Cannot filter or transform entities (use a dedicated klados for that)",
 
   "endpoint": "https://scatter.nick-chimicles-professional.workers.dev",
   "actions_required": ["entity:view", "entity:create"],
 
+  "accepts": {
+    "types": ["*"],
+    "cardinality": "many"
+  },
+
+  "produces": {
+    "types": ["*"],
+    "cardinality": "many"
+  },
+
   "input": {
-    "entity": {
-      "types": ["*"],
-      "types_description": "The target entity is not used by this klados. Any entity type is accepted but its content is ignored. The scatter utility operates purely on workflow input parameters.",
-
-      "properties": {
-        "required": {},
-        "optional": {}
-      },
-
-      "file": {
-        "required": false,
-        "description": "File attachments are not used by this klados."
-      },
-
-      "relationships": {
-        "required": {},
-        "optional": {}
-      }
-    },
-
     "klados_input": {
-      "description": "Entity IDs to scatter, with optional target for generic scatter mode.",
+      "description": "Optional parameters for generic scatter mode (invoking a target directly).",
       "properties": {
-        "required": {
-          "entity_ids": {
-            "type": "array",
-            "description": "Array of entity IDs to scatter. Can be simple string IDs or objects with routing information.",
-            "minItems": 1,
-            "items": {
-              "oneOf": [
-                {
-                  "type": "string",
-                  "description": "Simple entity ID string"
-                },
-                {
-                  "type": "object",
-                  "description": "Entity ID with optional routing properties",
-                  "properties": {
-                    "entity_id": {
-                      "type": "string",
-                      "description": "The entity ID (required)"
-                    },
-                    "entity_class": {
-                      "type": "string",
-                      "description": "Optional routing class for conditional workflow paths"
-                    }
-                  },
-                  "required": ["entity_id"]
-                }
-              ]
-            },
-            "examples": [
-              ["ENTITY_001", "ENTITY_002", "ENTITY_003"],
-              [
-                { "entity_id": "ENTITY_001", "entity_class": "high_priority" },
-                { "entity_id": "ENTITY_002", "entity_class": "normal" }
-              ]
-            ]
-          }
-        },
+        "required": {},
         "optional": {
           "target_klados": {
             "type": "string",
@@ -84,12 +38,15 @@
           "passthrough_input": {
             "type": "object",
             "description": "Input data to pass to each target invocation (only used in generic scatter mode)."
+          },
+          "entity_ids": {
+            "type": "array",
+            "description": "DEPRECATED: Use target_entities in the invoke request instead. Kept for backward compatibility.",
+            "items": { "type": "string" }
           }
         }
       }
-    },
-
-    "cardinality": "one"
+    }
   },
 
   "output": {
@@ -151,24 +108,19 @@
 
   "examples": [
     {
-      "name": "Basic scatter with string IDs",
-      "description": "Scatter three entities to parallel processing",
+      "name": "Basic scatter via rhiza invoke",
+      "description": "Scatter three entities to parallel processing via workflow invocation",
 
-      "input": {
-        "entity": {
-          "id": "WORKFLOW_ROOT",
-          "type": "workflow",
-          "properties": {
-            "label": "KG Extraction Workflow"
-          }
-        },
-        "klados_input": {
-          "entity_ids": ["CHUNK_001", "CHUNK_002", "CHUNK_003"]
+      "invocation": {
+        "method": "POST /rhizai/{scatter_rhiza_id}/invoke",
+        "body": {
+          "target_collection": "COLLECTION_001",
+          "target_entities": ["CHUNK_001", "CHUNK_002", "CHUNK_003"],
+          "confirm": true
         }
       },
 
       "output": {
-        "entities_created": [],
         "handoff_outputs": ["CHUNK_001", "CHUNK_002", "CHUNK_003"],
         "log_messages": [
           "Scattering 3 entities",
@@ -180,7 +132,6 @@
         "rhiza_flow": {
           "scatter": {
             "klados": { "id": "klados_scatter_utility" },
-            "input": { "entity_ids": ["CHUNK_001", "CHUNK_002", "CHUNK_003"] },
             "then": { "scatter": "extract" }
           },
           "extract": {
@@ -193,47 +144,19 @@
     },
 
     {
-      "name": "Scatter with routing metadata",
-      "description": "Scatter entities with classification for conditional routing",
-
-      "input": {
-        "entity": {
-          "type": "workflow",
-          "properties": {}
-        },
-        "klados_input": {
-          "entity_ids": [
-            { "entity_id": "DOC_A", "entity_class": "pdf" },
-            { "entity_id": "DOC_B", "entity_class": "image" },
-            { "entity_id": "DOC_C", "entity_class": "pdf" }
-          ]
-        }
-      },
-
-      "output": {
-        "handoff_outputs": [
-          { "entity_id": "DOC_A", "entity_class": "pdf" },
-          { "entity_id": "DOC_B", "entity_class": "image" },
-          { "entity_id": "DOC_C", "entity_class": "pdf" }
-        ]
-      },
-
-      "notes": "Routing metadata (entity_class) is preserved in outputs and can be used by rhiza for conditional routing to different kladoi"
-    },
-
-    {
       "name": "Generic scatter mode - invoke target directly",
-      "description": "Scatter entities directly to a klados without a rhiza workflow",
+      "description": "Scatter entities directly to a klados without a full rhiza workflow",
 
-      "input": {
-        "entity": {
-          "type": "workflow",
-          "properties": {}
-        },
-        "klados_input": {
-          "target_klados": "DESCRIBE_KLADOS_ID",
-          "entity_ids": ["ENTITY_001", "ENTITY_002", "ENTITY_003"],
-          "passthrough_input": { "mode": "detailed" }
+      "invocation": {
+        "method": "POST /rhizai/{scatter_rhiza_id}/invoke",
+        "body": {
+          "target_collection": "COLLECTION_001",
+          "target_entities": ["ENTITY_001", "ENTITY_002", "ENTITY_003"],
+          "input": {
+            "target_klados": "DESCRIBE_KLADOS_ID",
+            "passthrough_input": { "mode": "detailed" }
+          },
+          "confirm": true
         }
       },
 
@@ -250,27 +173,27 @@
     },
 
     {
-      "name": "Error case - missing entity_ids",
-      "description": "What happens when entity_ids is not provided",
+      "name": "Error case - missing target_entities",
+      "description": "What happens when target_entities is not provided",
 
-      "input": {
-        "entity": {
-          "type": "workflow",
-          "properties": {}
-        },
-        "klados_input": {}
+      "invocation": {
+        "method": "POST /rhizai/{scatter_rhiza_id}/invoke",
+        "body": {
+          "target_collection": "COLLECTION_001",
+          "confirm": true
+        }
       },
 
       "output": {
         "error": true,
         "log_status": "error",
-        "error_message": "input.entity_ids is required"
+        "error_message": "target_entities is required (or input.entity_ids for backward compatibility)"
       }
     }
   ],
 
   "metadata": {
-    "version": "1.0.0",
+    "version": "2.0.0",
     "author": "Arke Institute",
 
     "tags": ["workflow", "scatter", "fan-out", "orchestration", "utility", "tier-1"],

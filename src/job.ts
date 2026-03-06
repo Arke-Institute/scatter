@@ -2,45 +2,30 @@
  * Scatter Utility Job Logic
  *
  * Two modes of operation:
- * 1. Rhiza handoff mode (default): Extracts entity IDs from input and returns
- *    them as outputs for rhiza's scatter handoff system to dispatch.
+ * 1. Rhiza handoff mode (default): Receives entity IDs via target_entities and
+ *    returns them as outputs for rhiza's scatter handoff system to dispatch.
  *
  * 2. Generic scatter mode: When target_klados or target_rhiza is specified,
  *    invokes the target directly for each entity ID (fire-and-forget).
+ *
+ * Entity IDs are received via:
+ * - request.target_entities (preferred, standard KladosRequest field)
+ * - input.entity_ids (deprecated, for backward compatibility)
  */
 
 import type { KladosJob, Output, InvokeOptions, DelegateOutputItem } from '@arke-institute/rhiza';
 import { invokeTarget, delegateToScatterUtility } from '@arke-institute/rhiza';
 import type { ArkeClient } from '@arke-institute/sdk';
-import type { EntityIdInput } from './types';
 
 const SCATTER_THRESHOLD = 50;
 const INVOKE_CONCURRENCY = 10;
 const SCATTER_UTILITY_URL = 'https://scatter-utility.arke.institute';
 
 /**
- * Normalize an entity ID input to the Output format expected by rhiza
- */
-function normalizeEntityId(input: EntityIdInput): Output {
-  if (typeof input === 'string') {
-    return input;
-  }
-
-  // Object format with entity_id (and optional routing properties)
-  const { entity_id, ...rest } = input;
-  if (Object.keys(rest).length === 0) {
-    return entity_id;
-  }
-
-  // Return as OutputItem for routing support
-  return { entity_id, ...rest };
-}
-
-/**
  * Process a scatter job
  *
  * Two modes of operation:
- * 1. Rhiza handoff mode (default): Returns entity_ids as outputs for rhiza's
+ * 1. Rhiza handoff mode (default): Returns entity IDs as outputs for rhiza's
  *    scatter handoff to dispatch.
  * 2. Generic scatter mode: When target_klados or target_rhiza is specified,
  *    invokes the target directly for each entity ID.
@@ -53,19 +38,21 @@ export async function processScatterJob(job: KladosJob): Promise<Output[]> {
   const targetKlados = input?.target_klados as string | undefined;
   const targetRhiza = input?.target_rhiza as string | undefined;
 
-  // Validate entity_ids exists and is an array
-  const entityIds = input?.entity_ids as EntityIdInput[] | undefined;
+  // Get entity IDs from target_entities (preferred) or input.entity_ids (deprecated)
+  const entityIds: string[] | undefined =
+    job.request.target_entities ??
+    (input?.entity_ids as string[] | undefined);
 
   if (!entityIds) {
-    throw new Error('input.entity_ids is required');
+    throw new Error('target_entities is required (or input.entity_ids for backward compatibility)');
   }
 
   if (!Array.isArray(entityIds)) {
-    throw new Error('input.entity_ids must be an array');
+    throw new Error('target_entities must be an array');
   }
 
   if (entityIds.length === 0) {
-    throw new Error('input.entity_ids must not be empty');
+    throw new Error('target_entities must not be empty');
   }
 
   // GENERIC SCATTER MODE: target specified in input
@@ -85,14 +72,9 @@ export async function processScatterJob(job: KladosJob): Promise<Output[]> {
       input: input?.passthrough_input as Record<string, unknown> | undefined,
     };
 
-    // Normalize entity IDs to strings
-    const normalizedIds = entityIds.map(id =>
-      typeof id === 'string' ? id : id.entity_id
-    );
-
-    if (normalizedIds.length > SCATTER_THRESHOLD) {
+    if (entityIds.length > SCATTER_THRESHOLD) {
       // Delegate to scatter-utility service
-      const delegateOutputs: DelegateOutputItem[] = normalizedIds.map(id => ({
+      const delegateOutputs: DelegateOutputItem[] = entityIds.map(id => ({
         id,
         target: targetId,
         targetType,
@@ -109,27 +91,22 @@ export async function processScatterJob(job: KladosJob): Promise<Output[]> {
         throw new Error(`Scatter delegation failed: ${result.error}`);
       }
 
-      job.log.success(`Delegated ${normalizedIds.length} invocations (dispatch: ${result.dispatchId})`);
+      job.log.success(`Delegated ${entityIds.length} invocations (dispatch: ${result.dispatchId})`);
     } else {
       // Direct invocation with concurrency control
-      // Use the job's existing ArkeClient
-      await invokeWithConcurrency(job.client, normalizedIds, targetId, targetType, invokeOpts);
-      job.log.success(`Invoked ${normalizedIds.length} targets directly`);
+      await invokeWithConcurrency(job.client, entityIds, targetId, targetType, invokeOpts);
+      job.log.success(`Invoked ${entityIds.length} targets directly`);
     }
 
     // Return empty outputs - no rhiza handoff needed
     return [];
   }
 
-  // ORIGINAL BEHAVIOR: return entity_ids for rhiza handoff
+  // RHIZA HANDOFF MODE: return entity IDs for rhiza's scatter handoff to dispatch
   job.log.info(`Scattering ${entityIds.length} entities`);
+  job.log.success(`Prepared ${entityIds.length} outputs for scatter`);
 
-  // Normalize all inputs to Output format
-  const outputs = entityIds.map(normalizeEntityId);
-
-  job.log.success(`Prepared ${outputs.length} outputs for scatter`);
-
-  return outputs;
+  return entityIds;
 }
 
 /**
