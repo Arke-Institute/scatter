@@ -23,27 +23,28 @@
 
   "input": {
     "klados_input": {
-      "description": "Optional parameters for generic scatter mode (invoking a target directly).",
+      "description": "Optional parameters for generic scatter mode (invoking a target directly). Properties map directly to keys in request.input.",
       "properties": {
-        "required": {},
-        "optional": {
-          "target_klados": {
-            "type": "string",
-            "description": "Klados ID to invoke for each entity (generic scatter mode). When specified, invokes target directly instead of returning outputs for rhiza handoff."
-          },
-          "target_rhiza": {
-            "type": "string",
-            "description": "Rhiza ID to invoke for each entity (generic scatter mode). Alternative to target_klados."
-          },
-          "passthrough_input": {
-            "type": "object",
-            "description": "Input data to pass to each target invocation (only used in generic scatter mode)."
-          },
-          "entity_ids": {
-            "type": "array",
-            "description": "DEPRECATED: Use target_entities in the invoke request instead. Kept for backward compatibility.",
-            "items": { "type": "string" }
-          }
+        "target_klados": {
+          "type": "string",
+          "required": false,
+          "description": "Klados ID to invoke for each entity (generic scatter mode). When specified, invokes target directly instead of returning outputs for rhiza handoff."
+        },
+        "target_rhiza": {
+          "type": "string",
+          "required": false,
+          "description": "Rhiza ID to invoke for each entity (generic scatter mode). Alternative to target_klados."
+        },
+        "passthrough_input": {
+          "type": "object",
+          "required": false,
+          "description": "Input data to pass to each target invocation (only used in generic scatter mode)."
+        },
+        "entity_ids": {
+          "type": "array",
+          "required": false,
+          "description": "DEPRECATED: Use target_entities in the invoke request instead. Kept for backward compatibility.",
+          "items": { "type": "string" }
         }
       }
     }
